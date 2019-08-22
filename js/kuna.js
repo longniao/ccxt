@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 const acx = require ('./acx.js');
-const { ExchangeError } = require ('./base/errors');
+const { ArgumentsRequired } = require ('./base/errors');
 
 // ---------------------------------------------------------------------------
 
@@ -12,58 +12,24 @@ module.exports = class kuna extends acx {
         return this.deepExtend (super.describe (), {
             'id': 'kuna',
             'name': 'Kuna',
-            'countries': 'UA',
+            'countries': [ 'UA' ],
             'rateLimit': 1000,
             'version': 'v2',
             'has': {
                 'CORS': false,
-                'fetchTickers': false,
+                'fetchTickers': true,
                 'fetchOHLCV': false,
+                'fetchOpenOrders': true,
+                'fetchMyTrades': true,
+                'withdraw': false,
             },
             'urls': {
+                'referral': 'https://kuna.io?r=kunaid-gvfihe8az7o4',
                 'logo': 'https://user-images.githubusercontent.com/1294454/31697638-912824fa-b3c1-11e7-8c36-cf9606eb94ac.jpg',
                 'api': 'https://kuna.io',
                 'www': 'https://kuna.io',
                 'doc': 'https://kuna.io/documents/api',
                 'fees': 'https://kuna.io/documents/api',
-            },
-            'api': {
-                'public': {
-                    'get': [
-                        'tickers/{market}',
-                        'order_book',
-                        'order_book/{market}',
-                        'trades',
-                        'trades/{market}',
-                        'timestamp',
-                    ],
-                },
-                'private': {
-                    'get': [
-                        'members/me',
-                        'orders',
-                        'trades/my',
-                    ],
-                    'post': [
-                        'orders',
-                        'order/delete',
-                    ],
-                },
-            },
-            'markets': {
-                'BTC/UAH': { 'id': 'btcuah', 'symbol': 'BTC/UAH', 'base': 'BTC', 'quote': 'UAH', 'precision': { 'amount': 6, 'price': 0 }, 'lot': 0.000001, 'limits': { 'amount': { 'min': 0.000001, 'max': undefined }, 'price': { 'min': 1, 'max': undefined }, 'cost': { 'min': 0.000001, 'max': undefined }}},
-                'ETH/UAH': { 'id': 'ethuah', 'symbol': 'ETH/UAH', 'base': 'ETH', 'quote': 'UAH', 'precision': { 'amount': 6, 'price': 0 }, 'lot': 0.000001, 'limits': { 'amount': { 'min': 0.000001, 'max': undefined }, 'price': { 'min': 1, 'max': undefined }, 'cost': { 'min': 0.000001, 'max': undefined }}},
-                'GBG/UAH': { 'id': 'gbguah', 'symbol': 'GBG/UAH', 'base': 'GBG', 'quote': 'UAH', 'precision': { 'amount': 3, 'price': 2 }, 'lot': 0.001, 'limits': { 'amount': { 'min': 0.000001, 'max': undefined }, 'price': { 'min': 0.01, 'max': undefined }, 'cost': { 'min': 0.000001, 'max': undefined }}}, // Golos Gold (GBG != GOLOS)
-                'KUN/BTC': { 'id': 'kunbtc', 'symbol': 'KUN/BTC', 'base': 'KUN', 'quote': 'BTC', 'precision': { 'amount': 6, 'price': 6 }, 'lot': 0.000001, 'limits': { 'amount': { 'min': 0.000001, 'max': undefined }, 'price': { 'min': 0.000001, 'max': undefined }, 'cost': { 'min': 0.000001, 'max': undefined }}},
-                'BCH/BTC': { 'id': 'bchbtc', 'symbol': 'BCH/BTC', 'base': 'BCH', 'quote': 'BTC', 'precision': { 'amount': 6, 'price': 6 }, 'lot': 0.000001, 'limits': { 'amount': { 'min': 0.000001, 'max': undefined }, 'price': { 'min': 0.000001, 'max': undefined }, 'cost': { 'min': 0.000001, 'max': undefined }}},
-                'BCH/UAH': { 'id': 'bchuah', 'symbol': 'BCH/UAH', 'base': 'BCH', 'quote': 'UAH', 'precision': { 'amount': 6, 'price': 0 }, 'lot': 0.000001, 'limits': { 'amount': { 'min': 0.000001, 'max': undefined }, 'price': { 'min': 1, 'max': undefined }, 'cost': { 'min': 0.000001, 'max': undefined }}},
-                'WAVES/UAH': { 'id': 'wavesuah', 'symbol': 'WAVES/UAH', 'base': 'WAVES', 'quote': 'UAH', 'precision': { 'amount': 6, 'price': 0 }, 'lot': 0.000001, 'limits': { 'amount': { 'min': 0.000001, 'max': undefined }, 'price': { 'min': 1, 'max': undefined }, 'cost': { 'min': 0.000001, 'max': undefined }}},
-                'ARN/BTC': { 'id': 'arnbtc', 'symbol': 'ARN/BTC', 'base': 'ARN', 'quote': 'BTC' },
-                'B2B/BTC': { 'id': 'b2bbtc', 'symbol': 'B2B/BTC', 'base': 'B2B', 'quote': 'BTC' },
-                'EVR/BTC': { 'id': 'evrbtc', 'symbol': 'EVR/BTC', 'base': 'EVR', 'quote': 'BTC' },
-                'GOL/GBG': { 'id': 'golgbg', 'symbol': 'GOL/GBG', 'base': 'GOL', 'quote': 'GBG' },
-                'R/BTC': { 'id': 'rbtc', 'symbol': 'R/BTC', 'base': 'R', 'quote': 'BTC' },
-                'RMC/BTC': { 'id': 'rmcbtc', 'symbol': 'RMC/BTC', 'base': 'RMC', 'quote': 'BTC' },
             },
             'fees': {
                 'trading': {
@@ -92,90 +58,135 @@ module.exports = class kuna extends acx {
         });
     }
 
-    async fetchOrderBook (symbol, params = {}) {
-        let market = this.market (symbol);
-        let orderBook = await this.publicGetOrderBook (this.extend ({
-            'market': market['id'],
-        }, params));
-        return this.parseOrderBook (orderBook, undefined, 'bids', 'asks', 'price', 'remaining_volume');
+    async fetchMarkets (params = {}) {
+        const quotes = [ 'btc', 'eth', 'eurs', 'rub', 'uah', 'usd', 'usdt' ];
+        const pricePrecisions = {
+            'UAH': 0,
+        };
+        const markets = [];
+        const response = await this.publicGetTickers (params);
+        const ids = Object.keys (response);
+        for (let i = 0; i < ids.length; i++) {
+            const id = ids[i];
+            for (let j = 0; j < quotes.length; j++) {
+                const quoteId = quotes[j];
+                const index = id.indexOf (quoteId);
+                const slice = id.slice (index);
+                if ((index > 0) && (slice === quoteId)) {
+                    const baseId = id.replace (quoteId, '');
+                    const base = this.safeCurrencyCode (baseId);
+                    const quote = this.safeCurrencyCode (quoteId);
+                    const symbol = base + '/' + quote;
+                    const precision = {
+                        'amount': 6,
+                        'price': this.safeInteger (pricePrecisions, quote, 6),
+                    };
+                    markets.push ({
+                        'id': id,
+                        'symbol': symbol,
+                        'base': base,
+                        'quote': quote,
+                        'baseId': baseId,
+                        'quoteId': quoteId,
+                        'precision': precision,
+                        'limits': {
+                            'amount': {
+                                'min': Math.pow (10, -precision['amount']),
+                                'max': Math.pow (10, precision['amount']),
+                            },
+                            'price': {
+                                'min': Math.pow (10, -precision['price']),
+                                'max': Math.pow (10, precision['price']),
+                            },
+                            'cost': {
+                                'min': undefined,
+                                'max': undefined,
+                            },
+                        },
+                    });
+                    break;
+                }
+            }
+        }
+        return markets;
     }
 
-    async fetchL3OrderBook (symbol, params) {
-        return this.fetchOrderBook (symbol, params);
+    async fetchL3OrderBook (symbol, limit = undefined, params = {}) {
+        return await this.fetchOrderBook (symbol, limit, params);
     }
 
     async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        if (!symbol)
-            throw new ExchangeError (this.id + ' fetchOpenOrders requires a symbol argument');
-        let market = this.market (symbol);
-        let orders = await this.privateGetOrders (this.extend ({
+        if (symbol === undefined) {
+            throw new ArgumentsRequired (this.id + ' fetchOpenOrders requires a symbol argument');
+        }
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const request = {
             'market': market['id'],
-        }, params));
+        };
+        const response = await this.privateGetOrders (this.extend (request, params));
         // todo emulation of fetchClosedOrders, fetchOrders, fetchOrder
         // with order cache + fetchOpenOrders
         // as in BTC-e, Liqui, Yobit, DSX, Tidex, WEX
-        return this.parseOrders (orders, market, since, limit);
+        return this.parseOrders (response, market, since, limit);
     }
 
     parseTrade (trade, market = undefined) {
-        let timestamp = this.parse8601 (trade['created_at']);
+        const timestamp = this.parse8601 (this.safeString (trade, 'created_at'));
         let symbol = undefined;
-        if (market)
+        if (market) {
             symbol = market['symbol'];
+        }
+        let side = this.safeString (trade, 'side');
+        if (side !== undefined) {
+            const sideMap = {
+                'ask': 'sell',
+                'bid': 'buy',
+            };
+            side = this.safeString (sideMap, side);
+        }
+        const price = this.safeFloat (trade, 'price');
+        const amount = this.safeFloat (trade, 'volume');
+        const cost = this.safeFloat (trade, 'funds');
+        const orderId = this.safeString (trade, 'order_id');
+        const id = this.safeString (trade, 'id');
         return {
-            'id': trade['id'].toString (),
+            'id': id,
+            'info': trade,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
             'symbol': symbol,
             'type': undefined,
-            'side': undefined,
-            'price': parseFloat (trade['price']),
-            'amount': parseFloat (trade['volume']),
-            'info': trade,
+            'side': side,
+            'order': orderId,
+            'takerOrMaker': undefined,
+            'price': price,
+            'amount': amount,
+            'cost': cost,
+            'fee': undefined,
         };
     }
 
     async fetchTrades (symbol, since = undefined, limit = undefined, params = {}) {
-        let market = this.market (symbol);
-        let response = await this.publicGetTrades (this.extend ({
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const request = {
             'market': market['id'],
-        }, params));
+        };
+        const response = await this.publicGetTrades (this.extend (request, params));
         return this.parseTrades (response, market, since, limit);
     }
 
-    parseMyTrade (trade, market) {
-        let timestamp = this.parse8601 (trade['created_at']);
-        let symbol = undefined;
-        if (market)
-            symbol = market['symbol'];
-        return {
-            'id': trade['id'],
-            'timestamp': timestamp,
-            'datetime': this.iso8601 (timestamp),
-            'price': trade['price'],
-            'amount': trade['volume'],
-            'cost': trade['funds'],
-            'symbol': symbol,
-            'side': trade['side'],
-            'order': trade['order_id'],
-        };
-    }
-
-    parseMyTrades (trades, market = undefined) {
-        let parsedTrades = [];
-        for (let i = 0; i < trades.length; i++) {
-            let trade = trades[i];
-            let parsedTrade = this.parseMyTrade (trade, market);
-            parsedTrades.push (parsedTrade);
-        }
-        return parsedTrades;
-    }
-
     async fetchMyTrades (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        if (!symbol)
-            throw new ExchangeError (this.id + ' fetchOpenOrders requires a symbol argument');
-        let market = this.market (symbol);
-        let response = await this.privateGetTradesMy ({ 'market': market['id'] });
-        return this.parseMyTrades (response, market);
+        if (symbol === undefined) {
+            throw new ArgumentsRequired (this.id + ' fetchOpenOrders requires a symbol argument');
+        }
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const request = {
+            'market': market['id'],
+        };
+        const response = await this.privateGetTradesMy (this.extend (request, params));
+        return this.parseTrades (response, market, since, limit);
     }
 };

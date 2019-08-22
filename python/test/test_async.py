@@ -2,13 +2,16 @@
 
 import argparse
 import asyncio
+import json
+# import logging
 import os
 import sys
-import json
-import time
+import time  # noqa: F401
 from os import _exit
 from traceback import format_tb
 
+# ------------------------------------------------------------------------------
+# logging.basicConfig(level=logging.INFO)
 # ------------------------------------------------------------------------------
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +19,7 @@ sys.path.append(root)
 
 # ------------------------------------------------------------------------------
 
-import ccxt.async as ccxt  # noqa: E402
+import ccxt.async_support as ccxt  # noqa: E402
 
 # ------------------------------------------------------------------------------
 
@@ -113,7 +116,7 @@ sys.excepthook = handle_all_unhandled_exceptions
 async def test_order_book(exchange, symbol):
     if exchange.has['fetchOrderBook']:
         delay = int(exchange.rateLimit / 1000)
-        time.sleep(delay)
+        await asyncio.sleep(delay)
         # dump(green(exchange.id), green(symbol), 'fetching order book...')
         orderbook = await exchange.fetch_order_book(symbol)
         dump(
@@ -132,10 +135,22 @@ async def test_order_book(exchange, symbol):
 
 
 async def test_ohlcv(exchange, symbol):
+    ignored_exchanges = [
+        'cex',  # CEX can return historical candles for a certain date only
+        'okex',  # okex fetchOHLCV counts "limit" candles from current time backwards
+        'okcoinusd',  # okex base class
+    ]
+    if exchange.id in ignored_exchanges:
+        return
     if exchange.has['fetchOHLCV']:
         delay = int(exchange.rateLimit / 1000)
-        time.sleep(delay)
-        ohlcvs = await exchange.fetch_ohlcv(symbol)
+        await asyncio.sleep(delay)
+        timeframes = exchange.timeframes if exchange.timeframes else {'1d': '1d'}
+        timeframe = list(timeframes.keys())[0]
+        limit = 10
+        duration = exchange.parse_timeframe(timeframe)
+        since = exchange.milliseconds() - duration * limit * 1000 - 1000
+        ohlcvs = await exchange.fetch_ohlcv(symbol, timeframe, since, limit)
         dump(green(exchange.id), 'fetched', green(len(ohlcvs)), 'OHLCVs')
     else:
         dump(yellow(exchange.id), 'fetching OHLCV not supported')
@@ -144,9 +159,14 @@ async def test_ohlcv(exchange, symbol):
 
 
 async def test_tickers(exchange, symbol):
+    ignored_exchanges = [
+        'digifinex',  # requires apiKey to call v2 tickers
+    ]
+    if exchange.id in ignored_exchanges:
+        return
     if exchange.has['fetchTickers']:
         delay = int(exchange.rateLimit / 1000)
-        time.sleep(delay)
+        await asyncio.sleep(delay)
         tickers = None
         try:
             # dump(green(exchange.id), 'fetching all tickers at once...')
@@ -200,10 +220,14 @@ async def test_l2_order_books_async(exchange):
 
 
 async def test_ticker(exchange, symbol):
+    ignored_exchanges = [
+        'digifinex',  # requires apiKey to call v2 tickers
+    ]
+    if exchange.id in ignored_exchanges:
+        return
     if exchange.has['fetchTicker']:
         delay = int(exchange.rateLimit / 1000)
-        time.sleep(delay)
-        # dump(green(exchange.id), green(symbol), 'fetching ticker...')
+        await asyncio.sleep(delay)
         ticker = await exchange.fetch_ticker(symbol)
         dump(
             green(exchange.id),
@@ -224,7 +248,7 @@ async def test_ticker(exchange, symbol):
 async def test_trades(exchange, symbol):
     if exchange.has['fetchTrades']:
         delay = int(exchange.rateLimit / 1000)
-        time.sleep(delay)
+        await asyncio.sleep(delay)
         # dump(green(exchange.id), green(symbol), 'fetching trades...')
         trades = await exchange.fetch_trades(symbol)
         dump(green(exchange.id), green(symbol), 'fetched', green(len(list(trades))), 'trades')
@@ -267,6 +291,7 @@ async def test_exchange(exchange):
     symbol = keys[0]
     symbols = [
         'BTC/USD',
+        'BTC/USDT',
         'BTC/CNY',
         'BTC/EUR',
         'BTC/ETH',
@@ -291,19 +316,16 @@ async def test_exchange(exchange):
         return
 
     # move to testnet/sandbox if possible before accessing the balance if possible
-    if 'test' in exchange.urls:
-        exchange.urls['api'] = exchange.urls['test']
+    # if 'test' in exchange.urls:
+    #     exchange.urls['api'] = exchange.urls['test']
 
-    # dump(green(exchange.id), 'fetching balance...')
-    # balance = await exchange.fetch_balance()
     await exchange.fetch_balance()
     dump(green(exchange.id), 'fetched balance')
 
-    time.sleep(exchange.rateLimit / 1000)
+    await asyncio.sleep(exchange.rateLimit / 1000)
 
     if exchange.has['fetchOrders']:
         try:
-            # dump(green(exchange.id), 'fetching orders...')
             orders = await exchange.fetch_orders(symbol)
             dump(green(exchange.id), 'fetched', green(str(len(orders))), 'orders')
         except (ccxt.ExchangeError, ccxt.NotSupported) as e:
@@ -335,12 +357,14 @@ async def test_exchange(exchange):
 # ------------------------------------------------------------------------------
 
 
-async def try_all_proxies(exchange, proxies):
+async def try_all_proxies(exchange, proxies=['']):
     current_proxy = 0
     max_retries = len(proxies)
     # a special case for ccex
-    if exchange.id == 'ccex':
+    if exchange.id == 'ccex' and max_retries > 1:
         current_proxy = 1
+    if exchange.proxy in proxies:
+        current_proxy = proxies.index(exchange.proxy)
     for num_retries in range(0, max_retries):
         try:
             exchange.proxy = proxies[current_proxy]
@@ -348,22 +372,18 @@ async def try_all_proxies(exchange, proxies):
             current_proxy = (current_proxy + 1) % len(proxies)
             await load_exchange(exchange)
             await test_exchange(exchange)
-            break
-        except ccxt.RequestTimeout as e:
-            dump_error(yellow('[' + type(e).__name__ + ']'), str(e)[0:200])
-        except ccxt.NotSupported as e:
-            dump_error(yellow('[' + type(e).__name__ + ']'), str(e.args)[0:200])
-        except ccxt.DDoSProtection as e:
-            dump_error(yellow('[' + type(e).__name__ + ']'), str(e.args)[0:200])
-        except ccxt.ExchangeNotAvailable as e:
-            dump_error(yellow('[' + type(e).__name__ + ']'), str(e.args)[0:200])
-        except ccxt.AuthenticationError as e:
-            dump_error(yellow('[' + type(e).__name__ + ']'), str(e)[0:200])
-        except ccxt.ExchangeError as e:
-            dump_error(yellow('[' + type(e).__name__ + ']'), str(e.args)[0:200])
+        except (ccxt.RequestTimeout, ccxt.AuthenticationError, ccxt.NotSupported, ccxt.DDoSProtection, ccxt.ExchangeNotAvailable, ccxt.ExchangeError) as e:
+            print({'type': type(e).__name__, 'num_retries': num_retries, 'max_retries': max_retries}, str(e)[0:200])
+            if (num_retries + 1) == max_retries:
+                dump_error(yellow('[' + type(e).__name__ + ']'), str(e)[0:200])
+        else:
+            # no exception
+            return True
+    # exception
+    return False
+
 
 # ------------------------------------------------------------------------------
-
 
 proxies = [
     '',
@@ -372,8 +392,9 @@ proxies = [
 ]
 
 # prefer local testing keys to global keys
-keys_global = './keys.json'
-keys_local = './keys.local.json'
+keys_folder = os.path.dirname(root)
+keys_global = os.path.join(keys_folder, 'keys.json')
+keys_local = os.path.join(keys_folder, 'keys.local.json')
 keys_file = keys_local if os.path.exists(keys_local) else keys_global
 
 # load the api keys from config
@@ -382,19 +403,15 @@ with open(keys_file) as file:
 
 # instantiate all exchanges
 for id in ccxt.exchanges:
+    if id == 'theocean' or id == 'theocean1':
+        continue
     exchange = getattr(ccxt, id)
     exchange_config = {'verbose': argv.verbose}
     if sys.version_info[0] < 3:
         exchange_config.update({'enableRateLimit': True})
+    if id in config:
+        exchange_config = ccxt.Exchange.deep_extend(exchange_config, config[id])
     exchanges[id] = exchange(exchange_config)
-
-# set up api keys appropriately
-tuples = list(ccxt.Exchange.keysort(config).items())
-for (id, params) in tuples:
-    if id in exchanges:
-        options = list(params.items())
-        for key in params:
-            setattr(exchanges[id], key, params[key])
 
 # ------------------------------------------------------------------------------
 
@@ -403,36 +420,29 @@ async def main():
 
     if argv.exchange:
 
-        exchange = exchanges[argv.exchange]
-        symbol = argv.symbol
+        if argv.exchange != 'theocean' and argv.exchange != 'theocean1':
 
-        if exchange.id in config:
-            if 'skip' in config[exchange.id]:
-                if config[exchange.id]['skip']:
-                    print('skipped.')
-                    sys.exit()
+            exchange = exchanges[argv.exchange]
+            symbol = argv.symbol
 
-        if hasattr(exchange, 'skip') and exchange.skip:
-            dump(green(exchange.id), 'skipped')
-        else:
-            if symbol:
-                await load_exchange(exchange)
-                await test_symbol(exchange, symbol)
+            if hasattr(exchange, 'skip') and exchange.skip:
+                dump(green(exchange.id), 'skipped')
             else:
-                await try_all_proxies(exchange, proxies)
-
-    else:
-
-        tuples = list(ccxt.Exchange.keysort(exchanges).items())
-        for (id, params) in tuples:
-            if id in exchanges:
-                exchange = exchanges[id]
-                if hasattr(exchange, 'skip') and exchange.skip:
-                    dump(green(exchange.id), 'skipped')
+                if symbol:
+                    await load_exchange(exchange)
+                    await test_symbol(exchange, symbol)
                 else:
                     await try_all_proxies(exchange, proxies)
+
+    else:
+        for exchange in sorted(exchanges.values(), key=lambda x: x.id):
+            if hasattr(exchange, 'skip') and exchange.skip:
+                dump(green(exchange.id), 'skipped')
+            else:
+                await try_all_proxies(exchange, proxies)
 
 # ------------------------------------------------------------------------------
 
 
-asyncio.get_event_loop().run_until_complete(main())
+if __name__ == '__main__':
+    asyncio.get_event_loop().run_until_complete(main())
